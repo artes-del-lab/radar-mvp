@@ -1,0 +1,16 @@
+# Секреты
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Кэш результатов оценки (генерируется при работе)
+data/cache/
+
+# Системное
+.DS_Store
+.idea/
+.vscode/
