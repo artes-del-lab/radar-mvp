@@ -8,26 +8,25 @@
    и разбор по четырём критериям.
 
 Результаты кэшируются в data/cache/evaluations.json: повторный показ дашборда
-не стоит денег. Кэш сбрасывается сам, если изменился тендер, модель или промпт.
+не стоит денег. Кэш сбрасывается сам, если изменился тендер, модель, промпт
+или наступил новый день.
 
 Запуск из консоли (оценить весь текущий список):
     cd backend && python -m app.scoring
 """
 
-import hashlib
-import json
 import re
 from datetime import datetime, timezone
 from typing import Literal
 
-import anthropic
 from pydantic import BaseModel, Field
 
 from . import config, criteria
+from .llm import JsonCache, LlmError, ask_json
 from .models import Tender
 
 PROMPT_VERSION = "1"
-CACHE_FILE = config.CACHE_DIR / "evaluations.json"
+cache = JsonCache(config.CACHE_DIR / "evaluations.json")
 
 Status = Literal["ok", "warn", "bad"]
 Level = Literal["high", "medium", "low"]
@@ -56,8 +55,7 @@ class Evaluation(BaseModel):
     evaluated_at: datetime
 
 
-class ScoringError(Exception):
-    pass
+ScoringError = LlmError
 
 
 # --- то, что возвращает Claude ---
@@ -68,28 +66,6 @@ class _LlmAnswer(BaseModel):
     summary: str
     checks: Checks
 
-
-def _strict_schema(schema: dict) -> dict:
-    """JSON-схема для структурированного ответа: без $ref и лишних полей."""
-    defs = schema.pop("$defs", {})
-
-    def resolve(node):
-        if isinstance(node, dict):
-            if "$ref" in node:
-                return resolve(defs[node["$ref"].split("/")[-1]])
-            node = {k: resolve(v) for k, v in node.items() if k not in ("title", "description")}
-            if node.get("type") == "object":
-                node["additionalProperties"] = False
-                node["required"] = list(node.get("properties", {}))
-            return node
-        if isinstance(node, list):
-            return [resolve(v) for v in node]
-        return node
-
-    return resolve(schema)
-
-
-ANSWER_SCHEMA = _strict_schema(_LlmAnswer.model_json_schema())
 
 SYSTEM_PROMPT = f"""Ты — аналитик отдела продаж компании, эксклюзивного представителя \
 немецкого поставщика спецтехники на российском рынке. Компания поставляет новую \
@@ -186,48 +162,8 @@ def _tender_prompt(tender: Tender, now: datetime) -> str:
 Заказчик: {tender.customer.name}{f" ({tender.customer.industry})" if tender.customer.industry else ""}"""
 
 
-_client: anthropic.Anthropic | None = None
-
-
-def _get_client() -> anthropic.Anthropic:
-    global _client
-    if not config.ANTHROPIC_API_KEY:
-        raise ScoringError("Не задан ANTHROPIC_API_KEY в файле .env")
-    if _client is None:
-        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
-    return _client
-
-
 def _ask_claude(tender: Tender, now: datetime) -> Evaluation:
-    try:
-        response = _get_client().beta.messages.create(
-            model=config.ANTHROPIC_MODEL,
-            max_tokens=16000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _tender_prompt(tender, now)}],
-            output_config={"format": {"type": "json_schema", "schema": ANSWER_SCHEMA}},
-            # Если модель откажется отвечать, API сам повторит запрос на резервной модели.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
-    except anthropic.AuthenticationError as e:
-        raise ScoringError("Anthropic: неверный ANTHROPIC_API_KEY") from e
-    except anthropic.RateLimitError as e:
-        raise ScoringError("Anthropic: превышен лимит запросов, попробуйте через минуту") from e
-    except anthropic.APIStatusError as e:
-        raise ScoringError(f"Anthropic: ошибка {e.status_code}: {e.message}") from e
-    except anthropic.APIConnectionError as e:
-        raise ScoringError("Anthropic: нет соединения с API") from e
-
-    if response.stop_reason == "refusal":
-        raise ScoringError("Claude отказался оценивать этот тендер")
-    if response.stop_reason == "max_tokens":
-        raise ScoringError("Ответ Claude обрезан по лимиту длины")
-
-    text = next((b.text for b in response.content if b.type == "text"), None)
-    if text is None:
-        raise ScoringError("Claude вернул пустой ответ")
-    answer = _LlmAnswer.model_validate_json(text)
+    answer, model = ask_json(SYSTEM_PROMPT, _tender_prompt(tender, now), _LlmAnswer)
     score = max(0, min(100, answer.score))
     return Evaluation(
         tender_id=tender.id,
@@ -236,7 +172,7 @@ def _ask_claude(tender: Tender, now: datetime) -> Evaluation:
         summary=answer.summary.strip(),
         checks=answer.checks,
         method="llm",
-        model=response.model,
+        model=model,
         evaluated_at=now,
     )
 
@@ -245,27 +181,14 @@ def _ask_claude(tender: Tender, now: datetime) -> Evaluation:
 
 
 def _fingerprint(tender: Tender) -> str:
-    raw = tender.model_dump_json() + config.ANTHROPIC_MODEL + PROMPT_VERSION
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
-
-
-def _load_cache() -> dict:
-    try:
-        return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
-    except (FileNotFoundError, ValueError):
-        return {}
-
-
-def _save_cache(cache: dict) -> None:
-    CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    CACHE_FILE.write_text(json.dumps(cache, ensure_ascii=False, indent=1), encoding="utf-8")
+    # Дата входит в отпечаток: «осталось N дней» должно пересчитываться каждый день.
+    today = datetime.now(timezone.utc).date().isoformat()
+    return JsonCache.fingerprint(tender.model_dump_json(), PROMPT_VERSION, today)
 
 
 def get_cached(tender: Tender) -> Evaluation | None:
-    entry = _load_cache().get(tender.id)
-    if entry and entry.get("fingerprint") == _fingerprint(tender):
-        return Evaluation.model_validate(entry["evaluation"])
-    return None
+    value = cache.get(tender.id, _fingerprint(tender))
+    return Evaluation.model_validate(value) if value else None
 
 
 def evaluate(tender: Tender, force: bool = False) -> Evaluation:
@@ -275,10 +198,7 @@ def evaluate(tender: Tender, force: bool = False) -> Evaluation:
 
     now = datetime.now(timezone.utc)
     result = _prefilter(tender, now) or _ask_claude(tender, now)
-
-    cache = _load_cache()
-    cache[tender.id] = {"fingerprint": _fingerprint(tender), "evaluation": result.model_dump(mode="json")}
-    _save_cache(cache)
+    cache.put(tender.id, _fingerprint(tender), result.model_dump(mode="json"))
     return result
 
 
