@@ -191,6 +191,16 @@ def get_cached(tender: Tender) -> Evaluation | None:
     return Evaluation.model_validate(value) if value else None
 
 
+def quick(tender: Tender) -> Evaluation | None:
+    """Оценка без вызова Claude: из кэша или по предфильтру. Иначе None."""
+    if cached := get_cached(tender):
+        return cached
+    now = datetime.now(timezone.utc)
+    if result := _prefilter(tender, now):
+        cache.put(tender.id, _fingerprint(tender), result.model_dump(mode="json"))
+    return result
+
+
 def evaluate(tender: Tender, force: bool = False) -> Evaluation:
     """Оценка одного тендера (из кэша, если он актуален)."""
     if not force and (cached := get_cached(tender)):

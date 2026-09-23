@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>РАДАР — тендеры на спецтехнику</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="28" height="28">
+          <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2" opacity=".35"/>
+          <circle cx="16" cy="16" r="8" fill="none" stroke="currentColor" stroke-width="2" opacity=".6"/>
+          <path d="M16 16 L27 9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+          <circle cx="16" cy="16" r="2.5" fill="currentColor"/>
+        </svg>
+      </div>
+      <div>
+        <div class="brand-name">РАДАР</div>
+        <div class="brand-sub">Раннее обнаружение тендеров на спецтехнику</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="source-badge" class="chip"></span>
+      <button id="evaluate-all" class="btn btn-primary" type="button">Оценить все</button>
+    </div>
+  </header>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <main class="page">
+    <section class="kpis" aria-label="Сводка">
+      <div class="kpi"><div class="kpi-label">Найдено тендеров</div><div class="kpi-value" id="kpi-total">—</div></div>
+      <div class="kpi"><div class="kpi-label"><span class="dot dot-high"></span>Стоит заняться</div><div class="kpi-value" id="kpi-high">—</div></div>
+      <div class="kpi"><div class="kpi-label"><span class="dot dot-medium"></span>Посмотреть внимательнее</div><div class="kpi-value" id="kpi-medium">—</div></div>
+      <div class="kpi"><div class="kpi-label"><span class="dot dot-low"></span>Отсеяно</div><div class="kpi-value" id="kpi-low">—</div></div>
+      <div class="kpi"><div class="kpi-label">НМЦК релевантных лотов</div><div class="kpi-value" id="kpi-sum">—</div></div>
+    </section>
+
+    <div class="toolbar">
+      <div class="tabs" role="tablist" id="filters">
+        <button class="tab active" data-filter="all" type="button">Все</button>
+        <button class="tab" data-filter="high" type="button">Стоит заняться</button>
+        <button class="tab" data-filter="medium" type="button">Внимательнее</button>
+        <button class="tab" data-filter="low" type="button">Отсеяно</button>
+        <button class="tab" data-filter="none" type="button">Не оценены</button>
+      </div>
+      <label class="sort">Сортировка
+        <select id="sort">
+          <option value="score">по релевантности</option>
+          <option value="deadline">по сроку подачи</option>
+          <option value="nmck">по НМЦК</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="layout">
+      <section class="list" id="list" aria-label="Тендеры"></section>
+      <aside class="detail" id="detail" aria-live="polite">
+        <div class="empty">Выберите тендер слева, чтобы увидеть оценку и подготовить первое касание.</div>
+      </aside>
+    </div>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
