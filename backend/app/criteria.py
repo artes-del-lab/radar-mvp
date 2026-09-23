@@ -25,3 +25,23 @@ def okpd2_matches(code: str) -> bool:
     if any(code.startswith(prefix) for prefix in OKPD2_EXCLUDE):
         return False
     return any(code.startswith(prefix) for prefix in OKPD2_INCLUDE)
+
+
+# НМЦК ниже порога — скорее всего мелочь, б/у или запчасти. Не жёсткий отсев:
+# порог передаётся модели как ориентир.
+MIN_NMCK_RUB = 1_000_000
+
+# Регионы работы компании. Пустой список — вся Россия.
+TARGET_REGIONS: list[str] = []
+
+BRANDS = ["Caterpillar", "Komatsu", "Hitachi", "John Deere"]
+
+# Регулярные выражения для быстрого поиска по тексту лота (без учёта регистра).
+BRAND_PATTERNS = [
+    r"caterpillar", r"\bcat\b", r"катерпил", r"komatsu", r"комацу",
+    r"hitachi", r"хитачи", r"john\s*deere", r"джон\s*дир",
+]
+EQUIPMENT_PATTERNS = [
+    r"экскаватор", r"бульдозер", r"\b(авто)?кран", r"погрузчик",
+    r"грейдер", r"трактор", r"спецтехник",
+]
