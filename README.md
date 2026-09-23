@@ -27,6 +27,7 @@ radar-mvp/
 ├── backend/                 # Python + FastAPI: логика и API для дашборда
 │   ├── app/
 │   │   ├── config.py        # чтение ключей из .env, выбор mock/реальных данных
+│   │   ├── criteria.py      # критерии отбора: коды ОКПД2 (28.92, 29.10 без легковых)
 │   │   └── models.py        # единый формат тендера внутри системы
 │   └── requirements.txt     # зависимости Python
 ├── frontend/                # дашборд (HTML/JS, без сборки)
