@@ -156,9 +156,26 @@ async function evaluateAll() {
   btn.textContent = "Оценить все";
 }
 
-async function select(id, scroll = false) {
+// На телефоне карточка лота — отдельный экран поверх списка (иначе она оказывается
+// под всеми тендерами, и прокрутка к ней внутри приложений срабатывает не везде).
+const narrow = () => window.matchMedia("(max-width: 900px)").matches;
+let listScrollY = 0;
+
+function openDetailScreen() {
+  listScrollY = window.scrollY;
+  document.body.classList.add("detail-open");
+  window.scrollTo(0, 0);
+}
+
+function closeDetailScreen() {
+  document.body.classList.remove("detail-open");
+  window.scrollTo(0, listScrollY);
+}
+
+async function select(id, open = false) {
   state.selected = id;
   renderAll();
+  if (open && narrow()) openDetailScreen();
   const it = item(id);
   if (it?.has_draft && !state.drafts[id]) {
     try {
@@ -166,7 +183,6 @@ async function select(id, scroll = false) {
       renderDetail();
     } catch { /* черновика нет — не страшно */ }
   }
-  if (scroll && window.matchMedia("(max-width: 900px)").matches) $("#detail").scrollIntoView({ behavior: "smooth" });
 }
 
 // --- отрисовка ---
@@ -389,6 +405,7 @@ function renderDetail() {
     ["Черновик", !!state.drafts[t.id] || it.has_draft],
   ];
   $("#detail").innerHTML = `
+    <button type="button" class="detail-back" data-action="back">← К списку тендеров</button>
     <div class="steps">
       ${steps.map(([name, done], i) => `<div class="step ${done ? "done" : ""}"><span class="step-num">${done ? "✓" : i + 1}</span>${name}</div>`).join("")}
     </div>
@@ -429,6 +446,7 @@ $("#list").addEventListener("click", (ev) => {
 
 $("#detail").addEventListener("click", async (ev) => {
   const btn = ev.target.closest("[data-action]");
+  if (btn?.dataset.action === "back") return closeDetailScreen();
   if (!btn || !state.selected) return;
   const id = state.selected;
   switch (btn.dataset.action) {

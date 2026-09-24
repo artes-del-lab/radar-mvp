@@ -218,3 +218,23 @@ button, select, textarea { font: inherit; color: inherit; }
   background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700;
   letter-spacing: .04em; text-transform: uppercase; vertical-align: 2px; margin-right: 6px;
 }
+
+/* --- карточка лота на телефоне: отдельный экран --- */
+.detail-back { display: none; }
+@media (max-width: 900px) {
+  body.detail-open .page > :not(.layout),
+  body.detail-open .list,
+  body.detail-open .snapshot-note,
+  body.detail-open .banner { display: none; }
+  body.detail-open .page { padding-top: 12px; }
+  body.detail-open .detail-back {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 2;
+    padding: 14px 16px; border: 0; border-bottom: 1px solid var(--border);
+    background: var(--surface); color: var(--text); font-weight: 600; font-size: 15px;
+    text-align: left; cursor: pointer;
+  }
+  .detail-back:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  /* sticky-кнопке нужен прокручиваемый предок без обрезки */
+  body.detail-open .detail { overflow: visible; }
+}
