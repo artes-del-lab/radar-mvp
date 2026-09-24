@@ -5,8 +5,11 @@
 Дашборд: http://localhost:8000
 """
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+import base64
+import secrets
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -18,6 +21,36 @@ from .tenderplan_client import TenderplanError, get_tender, get_tenders, source_
 FRONTEND_DIR = config.ROOT_DIR / "frontend"
 
 app = FastAPI(title="РАДАР", docs_url="/api/docs")
+
+
+@app.middleware("http")
+async def require_password(request: Request, call_next):
+    """Вход по паролю, если задан RADAR_PASSWORD: стандартное окно браузера.
+
+    Браузер запоминает пароль и сам отправляет его со всеми запросами дашборда.
+    """
+    if config.RADAR_PASSWORD and not _password_ok(request.headers.get("authorization", "")):
+        return Response(
+            "Нужен логин и пароль РАДАРа",
+            status_code=401,
+            headers={"WWW-Authenticate": 'Basic realm="RADAR", charset="UTF-8"'},
+            media_type="text/plain; charset=utf-8",
+        )
+    return await call_next(request)
+
+
+def _password_ok(header: str) -> bool:
+    scheme, _, encoded = header.partition(" ")
+    if scheme.lower() != "basic":
+        return False
+    try:
+        user, _, password = base64.b64decode(encoded).decode("utf-8").partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    # compare_digest — сравнение за постоянное время, чтобы пароль не подбирали по таймингу.
+    return secrets.compare_digest(user.encode(), config.RADAR_USER.encode()) and secrets.compare_digest(
+        password.encode(), config.RADAR_PASSWORD.encode()
+    )
 
 
 class TenderItem(BaseModel):

@@ -34,3 +34,7 @@ DATA_SOURCE = os.getenv("DATA_SOURCE", "auto").strip().lower()
 USE_MOCK_TENDERS = DATA_SOURCE == "mock" or not TENDERPLAN_API_KEY
 
 CACHE_DIR = DATA_DIR / "cache"
+
+# Вход по паролю (для сервера). Пусто — вход без пароля, как при запуске у себя.
+RADAR_USER = os.getenv("RADAR_USER", "radar").strip()
+RADAR_PASSWORD = os.getenv("RADAR_PASSWORD", "").strip()

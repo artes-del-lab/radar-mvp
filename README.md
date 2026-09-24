@@ -175,6 +175,39 @@ uvicorn app.main:app --reload
 
 ---
 
+## Установка на сервер
+
+Нужен VPS с **Ubuntu 24.04** (1 ядро, 2 ГБ памяти, 15–20 ГБ диска), например
+Timeweb Cloud или Selectel. Домен не обязателен.
+
+1. **Токен GitHub** (репозиторий закрытый): github.com → Settings → Developer
+   settings → Fine-grained tokens → Generate new token. Repository access — только
+   `radar-mvp`, Permissions → Contents: **Read-only**.
+2. Откройте консоль сервера (в панели хостинга есть веб-консоль) и выполните,
+   подставив токен:
+
+   ```bash
+   export GH_TOKEN=токен_GitHub
+   curl -fsSL -H "Authorization: token $GH_TOKEN" \
+     https://raw.githubusercontent.com/artes-del-lab/radar-mvp/claude/radar-tender-mvp-jh8u0b/deploy/install.sh | bash
+   ```
+
+3. Скрипт спросит токен шлюза и токен Тендерплана, а в конце напечатает адрес,
+   логин и пароль. Адрес вида `https://1-2-3-4.sslip.io` работает с HTTPS без
+   покупки домена.
+
+Что настраивает скрипт (`deploy/install.sh`): РАДАР как службу с перезапуском при
+сбоях, веб-сервер Caddy с HTTPS, вход по паролю (`RADAR_PASSWORD` в `/opt/radar/.env`)
+и оценку новых тендеров каждое утро в 06:30 и 07:00 МСК — к началу рабочего дня
+дашборд открывается с готовыми оценками.
+
+- **Обновить** РАДАР до свежей версии — выполнить ту же команду ещё раз
+  (ключи, пароль и накопленные оценки сохранятся).
+- **Журнал** — `journalctl -u radar -n 50`; перезапуск — `systemctl restart radar`.
+- **Сменить пароль** — поправить `RADAR_PASSWORD` в `/opt/radar/.env` и `systemctl restart radar`.
+- **Свой домен** — направить его A-записью на IP сервера и запустить команду
+  установки с `export RADAR_DOMAIN=radar.example.ru`.
+
 ## Если что-то не работает
 
 | Симптом | Что делать |
