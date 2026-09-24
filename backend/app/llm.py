@@ -9,11 +9,13 @@ from pathlib import Path
 from typing import TypeVar
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from . import config
 
 T = TypeVar("T", bound=BaseModel)
+
+_ANSWER_TOOL = "answer"
 
 
 class LlmError(Exception):
@@ -64,11 +66,40 @@ def ask_json(system: str, prompt: str, answer_model: type[T]) -> tuple[T, str]:
         max_tokens=16000,
         system=system,
         messages=[{"role": "user", "content": prompt}],
-        output_config={"format": {"type": "json_schema", "schema": strict_schema(answer_model)}},
     )
+    schema = strict_schema(answer_model)
+    if config.ANTHROPIC_STRUCTURED == "tool":
+        # Шлюзы молча игнорируют output_config и отвечают свободным текстом.
+        # Принудительный вызов инструмента они пропускают: ответ приходит
+        # аргументами инструмента в виде JSON по схеме.
+        params.update(
+            tools=[{"name": _ANSWER_TOOL, "description": "Вернуть ответ", "strict": True, "input_schema": schema}],
+            tool_choice={"type": "tool", "name": _ANSWER_TOOL},
+        )
+    else:
+        params.update(output_config={"format": {"type": "json_schema", "schema": schema}})
     if config.ANTHROPIC_FALLBACKS:
         # Если модель откажется отвечать, API сам повторит запрос на резервной модели.
         params.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+    # Шлюз не гарантирует соответствие схеме, поэтому при кривом ответе
+    # спрашиваем ещё раз.
+    for attempt in range(_ATTEMPTS):
+        response = _send(params)
+        try:
+            return _parse(response, answer_model), response.model
+        except (ValidationError, _NoAnswer) as e:
+            if attempt == _ATTEMPTS - 1:
+                raise LlmError(f"Claude вернул ответ не по схеме ({_ATTEMPTS} попытки подряд)") from e
+
+
+_ATTEMPTS = 2
+
+
+class _NoAnswer(Exception):
+    pass
+
+
+def _send(params: dict):
     try:
         response = _get_client().beta.messages.create(**params)
     except anthropic.AuthenticationError as e:
@@ -84,11 +115,19 @@ def ask_json(system: str, prompt: str, answer_model: type[T]) -> tuple[T, str]:
         raise LlmError("Claude отказался отвечать на этот запрос")
     if response.stop_reason == "max_tokens":
         raise LlmError("Ответ Claude обрезан по лимиту длины")
+    return response
 
+
+def _parse(response, answer_model: type[T]) -> T:
+    if config.ANTHROPIC_STRUCTURED == "tool":
+        data = next((b.input for b in response.content if b.type == "tool_use"), None)
+        if data is None:
+            raise _NoAnswer
+        return answer_model.model_validate(data)
     text = next((b.text for b in response.content if b.type == "text"), None)
     if text is None:
-        raise LlmError("Claude вернул пустой ответ")
-    return answer_model.model_validate_json(text), response.model
+        raise _NoAnswer
+    return answer_model.model_validate_json(text)
 
 
 class JsonCache:

@@ -8,9 +8,18 @@
 - Ключ есть → запрос к https://tenderplan.ru/api/tenders/v2/getlist.
 
 Описание API: https://tenderplan.ru/api/doc/
-Структура ответа взята из примеров в их OpenAPI-спецификации. Полная схема
-там не описана, поэтому разбор ответа (_from_tenderplan) нужно будет сверить
-на первом реальном запросе.
+
+Что проверено на реальном ключе (24.09.2026):
+- Короткая модель тендера (как в getlist) приходит с полями _id, number,
+  orderName, maxPrice, currency (бывает null), type, region, customers,
+  publicationDateTime, submissionCloseDateTime — разбор ниже с ними совпадает.
+- type — код площадки, а не тип закупки; расшифровка — data/tenderplan_dicts.json.
+- Кодов ОКПД2 в короткой модели нет: предфильтр работает по названию лота.
+- getlist и keys/getall требуют ключ пользователя (права relations:read,
+  keys:read). Сервисный ключ приложения получает на них 403.
+
+Не проверено (нужен ключ пользователя): полная модель tenders/get с полем
+json (контактное лицо) и формат ссылки на карточку тендера.
 """
 
 import json
@@ -27,26 +36,12 @@ log = logging.getLogger(__name__)
 BASE_URL = "https://tenderplan.ru/api"
 TIMEOUT = 20.0
 
-# Коды регионов Тендерплана (коды субъектов РФ). Список неполный — дополнится
-# по мере встречаемости; неизвестный код покажется как «Регион 42».
-REGIONS = {
-    14: "Республика Саха (Якутия)",
-    23: "Краснодарский край",
-    24: "Красноярский край",
-    38: "Иркутская область",
-    42: "Кемеровская область — Кузбасс",
-    47: "Ленинградская область",
-    50: "Московская область",
-    51: "Мурманская область",
-    52: "Нижегородская область",
-    63: "Самарская область",
-    66: "Свердловская область",
-    71: "Тульская область",
-    76: "Ярославская область",
-    77: "г. Москва",
-    78: "г. Санкт-Петербург",
-    86: "Ханты-Мансийский автономный округ — Югра",
-}
+# Справочники Тендерплана (/api/tools/types/list и /api/tools/regions/list):
+# код площадки → название и закон, код региона → название. Коды регионов
+# совпадают с кодами субъектов РФ.
+_DICTS = json.loads((config.DATA_DIR / "tenderplan_dicts.json").read_text(encoding="utf-8"))
+PLATFORMS: dict[str, dict] = _DICTS["platforms"]
+REGIONS: dict[str, str] = _DICTS["regions"]
 
 
 class TenderplanError(Exception):
@@ -92,7 +87,13 @@ def _request(path: str, params: dict) -> dict:
     if resp.status_code == 401:
         raise TenderplanError("Тендерплан: ключ API недействителен (401)")
     if resp.status_code == 403:
-        raise TenderplanError("Тендерплан: у ключа нет прав на этот метод (403)")
+        # Проверено на реальном ключе: сервисный ключ приложения (права только
+        # resources:external) получает 403 на списки тендеров и ключей поиска.
+        raise TenderplanError(
+            "Тендерплан: у ключа нет прав на этот метод (403). Нужен ключ пользователя "
+            "(Personal Access Token из личного кабинета) с правами relations:read и keys:read, "
+            "а не сервисный ключ приложения"
+        )
     if resp.status_code == 429:
         raise TenderplanError("Тендерплан: превышен лимит запросов, подождите минуту (429)")
     resp.raise_for_status()
@@ -132,7 +133,9 @@ def _from_tenderplan(item: dict) -> Tender:
     customers = item.get("customers") or [{}]
     first_customer = customers[0]
     region_code = item.get("region") or first_customer.get("region")
-    platform = item.get("platform") or {}
+    # Поле type — это площадка (0 — ЕИС 223-ФЗ, 1 — ЕИС 44-ФЗ, 2 — B2B-Center…),
+    # проверено по справочнику и реальному ответу /api/search/tender.
+    platform = PLATFORMS.get(str(item.get("type")), {})
     details = _parse_details(item.get("json"))
 
     okpd2_list = item.get("okpd2") or []
@@ -141,8 +144,8 @@ def _from_tenderplan(item: dict) -> Tender:
     return Tender(
         id=item["_id"],
         source="tenderplan",
-        platform=platform.get("name") or "—",
-        law=_law_from_type(item.get("type")),
+        platform=platform.get("name") or f"площадка {item.get('type')}",
+        law=platform.get("law") or "—",
         number=str(item.get("number") or ""),
         # Формат ссылки на карточку — предположение, проверить на реальном тендере.
         url=f"https://tenderplan.ru/app?tender={item['_id']}",
@@ -151,7 +154,7 @@ def _from_tenderplan(item: dict) -> Tender:
         okpd2=Okpd2(code=okpd2_code, name=""),
         nmck=float(item.get("maxPrice") or 0),
         currency=item.get("currency") or "RUB",
-        region=REGIONS.get(region_code, f"Регион {region_code}" if region_code else "—"),
+        region=REGIONS.get(str(region_code), f"Регион {region_code}") if region_code is not None else "—",
         published_at=_ms_to_dt(item.get("publicationDateTime")),
         deadline=_ms_to_dt(item.get("submissionCloseDateTime")),
         customer=Customer(
@@ -159,12 +162,6 @@ def _from_tenderplan(item: dict) -> Tender:
             contact=details.get("contact"),
         ),
     )
-
-
-def _law_from_type(tender_type) -> str:
-    # Точные коды типов закупок у Тендерплана пока не известны —
-    # уточним по справочнику https://tenderplan.ru/api/tools/... после получения ключа.
-    return f"тип {tender_type}" if tender_type is not None else "—"
 
 
 def _parse_details(raw: str | None) -> dict:
