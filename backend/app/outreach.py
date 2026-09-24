@@ -123,7 +123,7 @@ def generate(tender: Tender, evaluation: Evaluation | None = None, force: bool =
     if not force and (cached := get_cached(tender)):
         return cached
 
-    answer, model = ask_json(SYSTEM_PROMPT, _prompt(tender, evaluation), _LlmDraft)
+    answer, model = ask_json(SYSTEM_PROMPT, _prompt(tender, evaluation), _LlmDraft, max_tokens=2000)
     contact = tender.customer.contact
     draft = Draft(
         tender_id=tender.id,

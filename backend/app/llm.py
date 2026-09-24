@@ -59,11 +59,15 @@ def _get_client() -> anthropic.Anthropic:
     return _client
 
 
-def ask_json(system: str, prompt: str, answer_model: type[T]) -> tuple[T, str]:
-    """Спрашивает Claude и возвращает (проверенный ответ, модель, которая ответила)."""
+def ask_json(system: str, prompt: str, answer_model: type[T], max_tokens: int) -> tuple[T, str]:
+    """Спрашивает Claude и возвращает (проверенный ответ, модель, которая ответила).
+
+    max_tokens — с небольшим запасом к реальной длине ответа: шлюз резервирует
+    его под квоту, и при большом значении отказывает, хотя квота ещё есть.
+    """
     params = dict(
         model=config.ANTHROPIC_MODEL,
-        max_tokens=16000,
+        max_tokens=max_tokens,
         system=system,
         messages=[{"role": "user", "content": prompt}],
     )

@@ -216,7 +216,7 @@ def _tender_prompt(tender: Tender, now: datetime) -> str:
 
 
 def _ask_claude(tender: Tender, now: datetime) -> Evaluation:
-    answer, model = ask_json(SYSTEM_PROMPT, _tender_prompt(tender, now), _LlmAnswer)
+    answer, model = ask_json(SYSTEM_PROMPT, _tender_prompt(tender, now), _LlmAnswer, max_tokens=1200)
     score = max(0, min(100, answer.score))
     return Evaluation(
         tender_id=tender.id,
