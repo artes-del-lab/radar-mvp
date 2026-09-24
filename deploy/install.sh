@@ -12,9 +12,9 @@
 # Повторный запуск безопасен: обновит код, а .env и накопленные оценки оставит.
 #
 # Запуск (от root, в веб-консоли сервера):
-#   export GH_TOKEN=токен_GitHub
-#   curl -fsSL -H "Authorization: token $GH_TOKEN" \
-#     https://raw.githubusercontent.com/artes-del-lab/radar-mvp/claude/radar-tender-mvp-jh8u0b/deploy/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/artes-del-lab/radar-mvp/claude/radar-tender-mvp-jh8u0b/deploy/install.sh | bash
+# Если репозиторий станет закрытым — перед этим: export GH_TOKEN=токен_GitHub
+# и добавить к curl: -H "Authorization: token $GH_TOKEN"
 
 set -euo pipefail
 
@@ -33,14 +33,18 @@ ask() {  # ask "Вопрос" имя_переменной — читает с к
 
 [ "$(id -u)" -eq 0 ] || { echo "Запустите от root (или через sudo)"; exit 1; }
 
-# --- токен GitHub: репозиторий закрытый -------------------------------------
+# --- токен GitHub нужен, только если репозиторий закрытый ---------------------
 if [ -n "${GH_TOKEN:-}" ]; then
   printf '%s' "$GH_TOKEN" >"$TOKEN_FILE"
   chmod 600 "$TOKEN_FILE"
 fi
 GH_TOKEN="$(cat "$TOKEN_FILE" 2>/dev/null || true)"
-[ -n "$GH_TOKEN" ] || { echo "Нужен токен GitHub: export GH_TOKEN=... и запустите снова"; exit 1; }
-REPO_URL="${RADAR_REPO_URL:-https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git}"  # RADAR_REPO_URL — для проверки скрипта
+if [ -n "$GH_TOKEN" ]; then
+  DEFAULT_REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+else
+  DEFAULT_REPO_URL="https://github.com/${REPO}.git"
+fi
+REPO_URL="${RADAR_REPO_URL:-$DEFAULT_REPO_URL}"  # RADAR_REPO_URL — для проверки скрипта
 
 say "Ставлю системные пакеты"
 export DEBIAN_FRONTEND=noninteractive

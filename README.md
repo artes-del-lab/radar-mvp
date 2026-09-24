@@ -180,19 +180,17 @@ uvicorn app.main:app --reload
 Нужен VPS с **Ubuntu 24.04** (1 ядро, 2 ГБ памяти, 15–20 ГБ диска), например
 Timeweb Cloud или Selectel. Домен не обязателен.
 
-1. **Токен GitHub** (репозиторий закрытый): github.com → Settings → Developer
-   settings → Fine-grained tokens → Generate new token. Repository access — только
-   `radar-mvp`, Permissions → Contents: **Read-only**.
-2. Откройте консоль сервера (в панели хостинга есть веб-консоль) и выполните,
-   подставив токен:
+1. Откройте консоль сервера (в панели хостинга есть веб-консоль) и выполните:
 
    ```bash
-   export GH_TOKEN=токен_GitHub
-   curl -fsSL -H "Authorization: token $GH_TOKEN" \
-     https://raw.githubusercontent.com/artes-del-lab/radar-mvp/claude/radar-tender-mvp-jh8u0b/deploy/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/artes-del-lab/radar-mvp/claude/radar-tender-mvp-jh8u0b/deploy/install.sh | bash
    ```
 
-3. Скрипт спросит токен шлюза и токен Тендерплана, а в конце напечатает адрес,
+   Если репозиторий сделают закрытым, понадобится токен GitHub только на чтение
+   (Settings → Developer settings → Fine-grained tokens, доступ к `radar-mvp`,
+   Contents: Read-only): `export GH_TOKEN=…` перед командой и
+   `-H "Authorization: token $GH_TOKEN"` в curl.
+2. Скрипт спросит токен шлюза и токен Тендерплана, а в конце напечатает адрес,
    логин и пароль. Адрес вида `https://1-2-3-4.sslip.io` работает с HTTPS без
    покупки домена.
 
