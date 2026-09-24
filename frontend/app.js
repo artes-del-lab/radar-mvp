@@ -177,7 +177,7 @@ function sortedFiltered() {
       || (daysLeft(a.tender.deadline) < 0) - (daysLeft(b.tender.deadline) < 0)
       || new Date(a.tender.deadline) - new Date(b.tender.deadline),
     deadline: (a, b) => new Date(a.tender.deadline) - new Date(b.tender.deadline),
-    nmck: (a, b) => b.tender.nmck - a.tender.nmck,
+    nmck: (a, b) => (b.tender.nmck ?? 0) - (a.tender.nmck ?? 0),
   }[state.sort];
   return [...list].sort(by);
 }
@@ -188,7 +188,7 @@ function renderKpis() {
   $("#kpi-high").textContent = lv("high").length;
   $("#kpi-medium").textContent = lv("medium").length;
   $("#kpi-low").textContent = lv("low").length;
-  const sum = [...lv("high"), ...lv("medium")].reduce((s, i) => s + i.tender.nmck, 0);
+  const sum = [...lv("high"), ...lv("medium")].reduce((s, i) => s + (i.tender.nmck ?? 0), 0);
   $("#kpi-sum").textContent = sum ? money(sum) : "—";
 
   const counts = {

@@ -96,7 +96,7 @@ def _prompt(tender: Tender, evaluation: Evaluation | None) -> str:
         f"Лот: {tender.title}",
         f"Описание: {tender.description}",
         f"Количество: {tender.quantity or 'не указано'}",
-        f"НМЦК: {tender.nmck:,.0f} {tender.currency}",
+        f"НМЦК: {f'{tender.nmck:,.0f} {tender.currency}' if tender.nmck else 'не указана'}",
         f"Место поставки: {tender.region}"
         + (f", {tender.delivery_place}" if tender.delivery_place else ""),
         f"Окончание подачи заявок: {tender.deadline:%d.%m.%Y}",

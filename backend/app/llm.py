@@ -105,6 +105,9 @@ def _send(params: dict):
     except anthropic.AuthenticationError as e:
         raise LlmError("Anthropic: ключ или токен не приняты (401)") from e
     except anthropic.RateLimitError as e:
+        if "quota" in str(e.message).lower():
+            # Так отвечает шлюз, когда исчерпана квота токенов на ключе.
+            raise LlmError("Исчерпана квота токенов у шлюза: подождите или пополните баланс") from e
         raise LlmError("Anthropic: превышен лимит запросов, попробуйте через минуту") from e
     except anthropic.APIStatusError as e:
         raise LlmError(f"Anthropic: ошибка {e.status_code}: {e.message}") from e

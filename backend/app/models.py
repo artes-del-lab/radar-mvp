@@ -43,7 +43,7 @@ class Tender(BaseModel):
     okpd2: Okpd2
     quantity: int | None = Field(default=None, description="Количество единиц")
 
-    nmck: float = Field(description="НМЦК, руб.")
+    nmck: float | None = Field(default=None, description="НМЦК, руб.; None — не указана")
     currency: str = "RUB"
     region: str
     delivery_place: str | None = None

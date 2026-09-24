@@ -9,21 +9,22 @@
 
 Описание API: https://tenderplan.ru/api/doc/
 
-Что проверено на реальном ключе (24.09.2026):
-- Короткая модель тендера (как в getlist) приходит с полями _id, number,
-  orderName, maxPrice, currency (бывает null), type, region, customers,
-  publicationDateTime, submissionCloseDateTime — разбор ниже с ними совпадает.
+Проверено на реальном ключе пользователя (24.09.2026):
+- getlist отдаёт по 50 коротких моделей: без ОКПД2, описания и контактов.
+  Их берём из полной карточки tenders/get (getmanydata тоже отдаёт короткие).
 - type — код площадки, а не тип закупки; расшифровка — data/tenderplan_dicts.json.
-- Кодов ОКПД2 в короткой модели нет: предфильтр работает по названию лота.
-- getlist и keys/getall требуют ключ пользователя (права relations:read,
-  keys:read). Сервисный ключ приложения получает на них 403.
-
-Не проверено (нужен ключ пользователя): полная модель tenders/get с полем
-json (контактное лицо) и формат ссылки на карточку тендера.
+- В полной карточке: okpd2 (бывает null — тогда код КТРУ из таблицы объектов),
+  href — ссылка на извещение, platform — ЭТП, json — дерево полей с таблицей
+  объектов (с национальным режимом), контактным лицом и местом поставки.
+- maxPrice бывает null или 0 — НМЦК не указана. currency — в нижнем регистре.
+- Нужен ключ пользователя с правами relations:read и keys:read: сервисный
+  ключ приложения получает 403.
 """
 
 import json
 import logging
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
 import httpx
@@ -35,6 +36,11 @@ log = logging.getLogger(__name__)
 
 BASE_URL = "https://tenderplan.ru/api"
 TIMEOUT = 20.0
+PAGE_SIZE = 50  # столько тендеров отдаёт getlist за страницу
+LIST_PAGES = 4  # не больше 200 свежих тендеров за раз
+MAX_OBJECTS = 10  # позиций лота в описании для Claude
+FULL_CACHE_FILE = config.CACHE_DIR / "tenderplan_tenders.json"
+_cache_lock = threading.Lock()
 
 # Справочники Тендерплана (/api/tools/types/list и /api/tools/regions/list):
 # код площадки → название и закон, код региона → название. Коды регионов
@@ -59,7 +65,7 @@ def get_tender(tender_id: str) -> Tender | None:
     """Один тендер по ID."""
     if config.USE_MOCK_TENDERS:
         return next((t for t in _load_mock() if t.id == tender_id), None)
-    data = _request("/tenders/get", {"id": tender_id})
+    data = _get_full(tender_id)
     return _from_tenderplan(data) if data else None
 
 
@@ -101,25 +107,67 @@ def _request(path: str, params: dict) -> dict:
 
 
 def _fetch_from_tenderplan() -> list[Tender]:
-    params = {
-        "type": 0,  # выборка по ключу
-        "page": 0,
-        "publicationDateTime": -1,  # сначала свежие
-        # только тендеры с ещё открытым приёмом заявок
-        "fromSubmissionCloseDateTime": int(datetime.now(timezone.utc).timestamp() * 1000),
-    }
-    if config.TENDERPLAN_SEARCH_KEY_ID:
-        params["id"] = config.TENDERPLAN_SEARCH_KEY_ID
-    data = _request("/tenders/v2/getlist", params)
+    # В списке приходят короткие модели: без ОКПД2, описания и контактов.
+    # Поэтому по каждому тендеру дополнительно берём полную карточку.
+    short_items = []
+    for page in range(LIST_PAGES):
+        params = {
+            "type": 0,  # выборка по ключу
+            "page": page,
+            "publicationDateTime": -1,  # сначала свежие
+            # только тендеры с ещё открытым приёмом заявок
+            "fromSubmissionCloseDateTime": int(datetime.now(timezone.utc).timestamp() * 1000),
+        }
+        if config.TENDERPLAN_SEARCH_KEY_ID:
+            params["id"] = config.TENDERPLAN_SEARCH_KEY_ID
+        batch = _request("/tenders/v2/getlist", params).get("tenders", [])
+        short_items += batch
+        if len(batch) < PAGE_SIZE:
+            break
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        items = list(pool.map(_full_or_short, short_items))
 
     tenders = []
-    for item in data.get("tenders", []):
+    for item in items:
         try:
             tenders.append(_from_tenderplan(item))
         except Exception:
             # Один кривой тендер не должен ломать весь список.
             log.exception("Не удалось разобрать тендер %s", item.get("_id"))
     return tenders
+
+
+def _full_or_short(short: dict) -> dict:
+    try:
+        return _get_full(short["_id"])
+    except TenderplanError:
+        log.warning("Нет полной карточки тендера %s, беру короткую", short.get("_id"))
+        return short
+
+
+def _get_full(tender_id: str) -> dict | None:
+    """Полная карточка тендера (кэш на день: карточки меняются редко)."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    with _cache_lock:
+        cached = _load_full_cache().get(tender_id)
+    if cached and cached["date"] == today:
+        return cached["item"]
+    item = _request("/tenders/get", {"id": tender_id})
+    if item:
+        with _cache_lock:
+            data = _load_full_cache()
+            data[tender_id] = {"date": today, "item": item}
+            FULL_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            FULL_CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    return item
+
+
+def _load_full_cache() -> dict:
+    try:
+        return json.loads(FULL_CACHE_FILE.read_text(encoding="utf-8"))
+    except (FileNotFoundError, ValueError):
+        return {}
 
 
 def _ms_to_dt(value) -> datetime | None:
@@ -129,32 +177,41 @@ def _ms_to_dt(value) -> datetime | None:
 
 
 def _from_tenderplan(item: dict) -> Tender:
-    """Перевод тендера из формата Тендерплана в формат РАДАРа."""
+    """Перевод тендера из формата Тендерплана в формат РАДАРа.
+
+    Работает и с полной карточкой (tenders/get), и с короткой моделью из списка.
+    """
     customers = item.get("customers") or [{}]
     first_customer = customers[0]
     region_code = item.get("region") or first_customer.get("region")
-    # Поле type — это площадка (0 — ЕИС 223-ФЗ, 1 — ЕИС 44-ФЗ, 2 — B2B-Center…),
-    # проверено по справочнику и реальному ответу /api/search/tender.
-    platform = PLATFORMS.get(str(item.get("type")), {})
+    # Поле type — код площадки по справочнику: 0 — ЕИС 223-ФЗ, 1 — ЕИС 44-ФЗ,
+    # 2 — B2B-Center… В полной карточке ещё есть platform — конкретная ЭТП.
+    platform_ref = PLATFORMS.get(str(item.get("type")), {})
+    platform_name = (item.get("platform") or {}).get("name") or platform_ref.get("name")
     details = _parse_details(item.get("json"))
+    objects = details.get("objects", [])
 
-    okpd2_list = item.get("okpd2") or []
-    okpd2_code = okpd2_list[0] if okpd2_list and isinstance(okpd2_list[0], str) else ""
+    okpd2_code = next((c for c in item.get("okpd2") or [] if isinstance(c, str)), "")
+    if not okpd2_code and objects:
+        # В 44-ФЗ вместо ОКПД2 бывает код КТРУ: 28.92.20.000-00000020 → 28.92.20.000
+        okpd2_code = objects[0]["code"].split("-")[0]
 
     return Tender(
         id=item["_id"],
         source="tenderplan",
-        platform=platform.get("name") or f"площадка {item.get('type')}",
-        law=platform.get("law") or "—",
+        platform=platform_name or f"площадка {item.get('type')}",
+        law=platform_ref.get("law") or "—",
         number=str(item.get("number") or ""),
-        # Формат ссылки на карточку — предположение, проверить на реальном тендере.
-        url=f"https://tenderplan.ru/app?tender={item['_id']}",
+        # href — ссылка на извещение в ЕИС или на площадке (есть в полной карточке).
+        url=item.get("href") or None,
         title=item.get("orderName") or "Без названия",
-        description=item.get("tenderSearch") or item.get("orderName") or "",
-        okpd2=Okpd2(code=okpd2_code, name=""),
-        nmck=float(item.get("maxPrice") or 0),
-        currency=item.get("currency") or "RUB",
+        description=_description(item, objects),
+        okpd2=Okpd2(code=okpd2_code, name=objects[0]["name"] if objects else ""),
+        quantity=_quantity(objects[0]["quantity"]) if len(objects) == 1 else None,
+        nmck=float(item["maxPrice"]) if item.get("maxPrice") else None,
+        currency=(item.get("currency") or "RUB").upper(),
         region=REGIONS.get(str(region_code), f"Регион {region_code}") if region_code is not None else "—",
+        delivery_place=details.get("delivery_place"),
         published_at=_ms_to_dt(item.get("publicationDateTime")),
         deadline=_ms_to_dt(item.get("submissionCloseDateTime")),
         customer=Customer(
@@ -164,10 +221,36 @@ def _from_tenderplan(item: dict) -> Tender:
     )
 
 
-def _parse_details(raw: str | None) -> dict:
-    """Достаёт контактное лицо из поля json полной модели тендера.
+def _description(item: dict, objects: list[dict]) -> str:
+    """Описание лота из таблицы объектов закупки: позиции, количество, нацрежим."""
+    if not objects:
+        return item.get("tenderSearch") or item.get("orderName") or ""
+    lines = []
+    for obj in objects[:MAX_OBJECTS]:
+        line = obj["name"] + (f" — {obj['quantity']}" if obj["quantity"] else "")
+        if obj["code"]:
+            line += f" (код {obj['code']})"
+        if obj["regime"]:
+            line += f"; национальный режим: {obj['regime']}"
+        lines.append(line)
+    if len(objects) > MAX_OBJECTS:
+        lines.append(f"…и ещё позиций: {len(objects) - MAX_OBJECTS}")
+    return "Объекты закупки: " + "; ".join(lines)
 
-    Это вложенное дерево полей вида {"fn": "FIO", "fv": "..."}.
+
+def _quantity(raw: str) -> int | None:
+    # «1 шт», «2.0 шт»; для «Условная единица» и подобного количества нет.
+    try:
+        return int(float(raw.split()[0].replace(",", ".")))
+    except (ValueError, IndexError):
+        return None
+
+
+def _parse_details(raw: str | None) -> dict:
+    """Разбор поля json полной карточки тендера.
+
+    Это дерево полей вида {"fn": "FIO", "fv": "..."}. Таблица объектов закупки —
+    поле Objects: {"th": заголовок, "tb": {"0": {"0": {"fn": "Name", ...}, ...}}}.
     """
     if not raw:
         return {}
@@ -177,15 +260,34 @@ def _parse_details(raw: str | None) -> dict:
         return {}
 
     found = {}
+    objects = []
 
     def walk(node):
-        if isinstance(node, dict):
-            if node.get("fn") in ("FIO", "Email") and isinstance(node.get("fv"), str):
-                found.setdefault(node["fn"], node["fv"].strip())
-            for value in node.values():
-                walk(value)
+        if not isinstance(node, dict):
+            return
+        fn, fv = node.get("fn"), node.get("fv")
+        if fn == "Objects" and isinstance(fv, dict):
+            for row in (fv.get("tb") or {}).values():
+                cells = {c.get("fn"): c.get("fv") for c in row.values() if isinstance(c, dict)}
+                if cells.get("Name"):
+                    objects.append({
+                        "name": str(cells["Name"]).strip(),
+                        "code": str(cells.get("Code") or "").strip(),
+                        "quantity": str(cells.get("Quantity") or "").strip(),
+                        "regime": str(cells.get("NationalRegime") or "").strip(),
+                    })
+            return
+        if fn in ("FIO", "Email", "deliveryPlace") and isinstance(fv, str):
+            found.setdefault(fn, fv.strip())
+        for value in node.values():
+            walk(value)
 
     walk(tree)
-    if "FIO" not in found:
-        return {}
-    return {"contact": ContactPerson(name=found["FIO"], email=found.get("Email"))}
+    result = {"objects": objects}
+    if found.get("deliveryPlace"):
+        # Бывает «Иркутская область, Адрес: Не заполнено».
+        place = found["deliveryPlace"].replace("Адрес:", "").replace("Не заполнено", "").strip(" ,")
+        result["delivery_place"] = place or None
+    if found.get("FIO"):
+        result["contact"] = ContactPerson(name=found["FIO"], email=found.get("Email"))
+    return result

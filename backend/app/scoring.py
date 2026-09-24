@@ -25,7 +25,7 @@ from . import config, criteria
 from .llm import JsonCache, LlmError, ask_json
 from .models import Tender
 
-PROMPT_VERSION = "1"
+PROMPT_VERSION = "2"
 cache = JsonCache(config.CACHE_DIR / "evaluations.json")
 
 Status = Literal["ok", "warn", "bad"]
@@ -81,7 +81,12 @@ SYSTEM_PROMPT = f"""Ты — аналитик отдела продаж комп
 Услуги, аренда, запчасти, шины, мебель и прочее — не основной профиль (запчасти к \
 технике наших брендов — частичное попадание).
 2. brand — упомянуты ли наши бренды, допускается ли эквивалент, нет ли требований, \
-исключающих нашу технику (конкретный чужой бренд, отечественное шасси, локализация).
+исключающих нашу технику (конкретный чужой бренд, отечественное шасси, локализация). \
+Вся наша техника — импортная, поэтому важен национальный режим, если он указан: \
+«Запрет» — иностранная продукция к закупке не допускается, участвовать нельзя \
+(brand — bad, score не выше 20); «Ограничение» — заявки с иностранной продукцией \
+отклоняются, если есть хотя бы одна с российской (warn, серьёзный риск); \
+«Преимущество» — российской продукции даётся ценовая фора (warn, небольшой риск).
 3. price — разумна ли НМЦК для такой техники. Ориентир нижнего порога — \
 {criteria.MIN_NMCK_RUB:,} руб.; слишком низкая цена или допуск б/у — плохой знак.
 4. deadline — сколько дней осталось до окончания подачи. Меньше 7 дней — тесно, \
@@ -155,7 +160,7 @@ def _tender_prompt(tender: Tender, now: datetime) -> str:
 ОКПД2: {tender.okpd2.code} {tender.okpd2.name} — \
 {"в целевых группах" if criteria.okpd2_matches(tender.okpd2.code) else "вне целевых групп"}
 Количество: {tender.quantity or "не указано"}
-НМЦК: {tender.nmck:,.0f} {tender.currency}
+НМЦК: {f'{tender.nmck:,.0f} {tender.currency}' if tender.nmck else 'не указана'}
 Регион: {tender.region}{f", {tender.delivery_place}" if tender.delivery_place else ""}
 Опубликован: {tender.published_at:%d.%m.%Y}
 Окончание подачи заявок: {tender.deadline:%d.%m.%Y %H:%M} ({deadline_fact})
