@@ -30,7 +30,7 @@ from datetime import datetime, timezone
 import httpx
 
 from . import config
-from .models import ContactPerson, Customer, Okpd2, Tender
+from .models import ContactPerson, Customer, LotItem, Okpd2, Tender
 
 log = logging.getLogger(__name__)
 
@@ -208,6 +208,15 @@ def _from_tenderplan(item: dict) -> Tender:
         description=_description(item, objects),
         okpd2=Okpd2(code=okpd2_code, name=objects[0]["name"] if objects else ""),
         quantity=_quantity(objects[0]["quantity"]) if len(objects) == 1 else None,
+        items=[
+            LotItem(
+                name=o["name"],
+                okpd2=o["code"].split("-")[0],
+                quantity=o["quantity"] or None,
+                national_regime=o["regime"] or None,
+            )
+            for o in objects
+        ],
         nmck=float(item["maxPrice"]) if item.get("maxPrice") else None,
         currency=(item.get("currency") or "RUB").upper(),
         region=REGIONS.get(str(region_code), f"Регион {region_code}") if region_code is not None else "—",

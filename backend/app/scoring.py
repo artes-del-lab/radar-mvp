@@ -118,32 +118,80 @@ def _text(tender: Tender) -> str:
     return f"{tender.title} {tender.description}".lower()
 
 
-def _has_keywords(tender: Tender) -> bool:
+def _mentions_brand(tender: Tender) -> bool:
     text = _text(tender)
-    patterns = criteria.EQUIPMENT_PATTERNS + criteria.BRAND_PATTERNS
-    return any(re.search(p, text) for p in patterns)
+    return any(re.search(p, text) for p in criteria.BRAND_PATTERNS)
+
+
+def _okpd2_codes(tender: Tender) -> list[str]:
+    return [c for c in [tender.okpd2.code, *(i.okpd2 for i in tender.items)] if c]
+
+
+def _money(value: float) -> str:
+    return f"{value / 1e6:.1f} млн руб." if value >= 1e6 else f"{value:,.0f} руб.".replace(",", " ")
 
 
 def _prefilter(tender: Tender, now: datetime) -> Evaluation | None:
-    """Отсев очевидно нерелевантного без вызова Claude."""
-    if criteria.okpd2_matches(tender.okpd2.code) or _has_keywords(tender):
-        return None
+    """Отсев без вызова Claude. None — тендер нужно оценить Claude.
+
+    Правила по порядку: срок подачи прошёл; национальный режим «Запрет» на все
+    позиции с нашими кодами; ни один код ОКПД2 не наш и бренды не упомянуты
+    (кроме «торговых» кодов, если в названии техника);
+    в названии стоп-слово (услуги, запчасти, навесное…) и бренды не упомянуты;
+    НМЦК ниже порога.
+    """
     days = _days_left(tender, now)
+    brand = _mentions_brand(tender)
+    codes = _okpd2_codes(tender)
+    our_codes = [c for c in codes if criteria.okpd2_matches(c)]
+    code_label = ", ".join(dict.fromkeys(codes)) or "код не указан"
+    title = tender.title.lower()
+
+    checks = Checks(
+        okpd2=Check(
+            status="ok" if our_codes else "bad",
+            note=f"{our_codes[0]} — целевая группа" if our_codes else f"{code_label} — вне целевых групп",
+        ),
+        brand=Check(status="ok" if brand else "warn", note="упомянуты наши бренды" if brand else "бренды не указаны"),
+        price=Check(status="warn", note="НМЦК не указана")
+        if not tender.nmck
+        else Check(status="ok", note=_money(tender.nmck)),
+        deadline=Check(
+            status="bad" if days < 0 else "warn" if days < 7 else "ok",
+            note="срок подачи прошёл" if days < 0 else f"осталось {days} дн.",
+        ),
+    )
+
+    target_items = [i for i in tender.items if criteria.okpd2_matches(i.okpd2)]
+    banned = bool(target_items) and all(
+        (i.national_regime or "").lower() == criteria.NATIONAL_REGIME_BAN for i in target_items
+    )
+    trade_code = any(c.startswith(tuple(criteria.OKPD2_TRADE)) for c in codes)
+    equipment = any(re.search(p, title) for p in criteria.EQUIPMENT_PATTERNS)
+    stop_word = next((m.group(0) for p in criteria.STOP_PATTERNS if (m := re.search(p, title))), None)
+
+    if days < 0:
+        score, summary = 5, f"Приём заявок закрылся {tender.deadline:%d.%m.%Y} — участвовать уже нельзя."
+    elif banned:
+        score, summary = 10, "Национальный режим «Запрет»: иностранная техника к закупке не допускается."
+        checks.brand = Check(status="bad", note="нацрежим «Запрет» — импорт не допускается")
+    elif not our_codes and not brand and not (trade_code and equipment):
+        score, summary = 0, f"Не наш профиль: ОКПД2 {code_label}, наши бренды не упоминаются."
+    elif stop_word and not brand:
+        score, summary = 0, f"Не поставка техники: в названии «{stop_word}…», наши бренды не упоминаются."
+        checks.okpd2 = Check(status="bad", note=f"«{stop_word}…» — сопутствующее, не техника")
+    elif tender.nmck and tender.nmck < criteria.MIN_NMCK_RUB:
+        score, summary = 5, f"НМЦК {_money(tender.nmck)} — ниже порога {_money(criteria.MIN_NMCK_RUB)} для новой техники."
+        checks.price = Check(status="bad", note=f"{_money(tender.nmck)} — ниже порога")
+    else:
+        return None
+
     return Evaluation(
         tender_id=tender.id,
-        score=0,
+        score=score,
         level="low",
-        summary=f"Не наш профиль: «{tender.okpd2.name or tender.okpd2.code}», "
-        "в описании нет спецтехники и наших брендов.",
-        checks=Checks(
-            okpd2=Check(status="bad", note=f"{tender.okpd2.code} — вне целевых групп"),
-            brand=Check(status="bad", note="бренды не упоминаются"),
-            price=Check(status="warn", note="не оценивалась"),
-            deadline=Check(
-                status="bad" if days < 0 else "ok",
-                note="срок прошёл" if days < 0 else f"осталось {days} дн.",
-            ),
-        ),
+        summary=summary,
+        checks=checks,
         method="prefilter",
         evaluated_at=now,
     )

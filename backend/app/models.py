@@ -30,6 +30,15 @@ class Customer(BaseModel):
     contact: ContactPerson | None = None
 
 
+class LotItem(BaseModel):
+    """Позиция из таблицы объектов закупки."""
+
+    name: str
+    okpd2: str = Field(default="", description="Код ОКПД2 (из кода КТРУ, если указан он)")
+    quantity: str | None = None
+    national_regime: str | None = Field(default=None, description="Запрет / Ограничение / Преимущество")
+
+
 class Tender(BaseModel):
     id: str = Field(description="Внутренний ID в РАДАРе")
     source: str = Field(description="Откуда получен: mock / tenderplan")
@@ -42,6 +51,7 @@ class Tender(BaseModel):
     description: str
     okpd2: Okpd2
     quantity: int | None = Field(default=None, description="Количество единиц")
+    items: list[LotItem] = Field(default_factory=list, description="Позиции лота, если известны")
 
     nmck: float | None = Field(default=None, description="НМЦК, руб.; None — не указана")
     currency: str = "RUB"
