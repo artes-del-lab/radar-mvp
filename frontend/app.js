@@ -160,7 +160,7 @@ function renderHeader() {
   if (!s.anthropic_configured) {
     showBanner("<strong>Ключ Anthropic не задан.</strong> Тендеры и отсев по предфильтру видны, " +
       "но оценка Claude и черновики станут доступны после того, как вы впишете " +
-      "<code>ANTHROPIC_API_KEY</code> в файл <code>.env</code> и перезапустите сервер.");
+      "<code>ANTHROPIC_API_KEY</code> (или адрес и токен шлюза) в файл <code>.env</code> и перезапустите сервер.");
   }
 }
 

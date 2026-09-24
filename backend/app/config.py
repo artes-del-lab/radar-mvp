@@ -14,6 +14,12 @@ load_dotenv(ROOT_DIR / ".env")
 TENDERPLAN_API_KEY = os.getenv("TENDERPLAN_API_KEY", "").strip()
 TENDERPLAN_SEARCH_KEY_ID = os.getenv("TENDERPLAN_SEARCH_KEY_ID", "").strip()
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+# Доступ через сторонний шлюз (прокси к API Anthropic): свой адрес и токен.
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL", "").strip()
+ANTHROPIC_AUTH_TOKEN = os.getenv("ANTHROPIC_AUTH_TOKEN", "").strip()
+ANTHROPIC_CONFIGURED = bool(ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN)
+# Резервная модель при отказе (бета-функция API). Шлюзы её часто не поддерживают.
+ANTHROPIC_FALLBACKS = os.getenv("ANTHROPIC_FALLBACKS", "off" if ANTHROPIC_BASE_URL else "on").strip().lower() == "on"
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-5").strip()
 
 # Источник тендеров: auto — Тендерплан, если задан ключ, иначе тестовые данные;

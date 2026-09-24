@@ -46,28 +46,33 @@ _client: anthropic.Anthropic | None = None
 
 def _get_client() -> anthropic.Anthropic:
     global _client
-    if not config.ANTHROPIC_API_KEY:
-        raise LlmError("Не задан ANTHROPIC_API_KEY в файле .env")
+    if not config.ANTHROPIC_CONFIGURED:
+        raise LlmError("Не задан ANTHROPIC_API_KEY (или ANTHROPIC_AUTH_TOKEN) в файле .env")
     if _client is None:
-        _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        _client = anthropic.Anthropic(
+            api_key=config.ANTHROPIC_API_KEY or None,
+            auth_token=None if config.ANTHROPIC_API_KEY else config.ANTHROPIC_AUTH_TOKEN,
+            base_url=config.ANTHROPIC_BASE_URL or None,
+        )
     return _client
 
 
 def ask_json(system: str, prompt: str, answer_model: type[T]) -> tuple[T, str]:
     """Спрашивает Claude и возвращает (проверенный ответ, модель, которая ответила)."""
+    params = dict(
+        model=config.ANTHROPIC_MODEL,
+        max_tokens=16000,
+        system=system,
+        messages=[{"role": "user", "content": prompt}],
+        output_config={"format": {"type": "json_schema", "schema": strict_schema(answer_model)}},
+    )
+    if config.ANTHROPIC_FALLBACKS:
+        # Если модель откажется отвечать, API сам повторит запрос на резервной модели.
+        params.update(betas=["server-side-fallback-2026-07-01"], fallbacks="default")
     try:
-        response = _get_client().beta.messages.create(
-            model=config.ANTHROPIC_MODEL,
-            max_tokens=16000,
-            system=system,
-            messages=[{"role": "user", "content": prompt}],
-            output_config={"format": {"type": "json_schema", "schema": strict_schema(answer_model)}},
-            # Если модель откажется отвечать, API сам повторит запрос на резервной модели.
-            betas=["server-side-fallback-2026-07-01"],
-            fallbacks="default",
-        )
+        response = _get_client().beta.messages.create(**params)
     except anthropic.AuthenticationError as e:
-        raise LlmError("Anthropic: неверный ANTHROPIC_API_KEY") from e
+        raise LlmError("Anthropic: ключ или токен не приняты (401)") from e
     except anthropic.RateLimitError as e:
         raise LlmError("Anthropic: превышен лимит запросов, попробуйте через минуту") from e
     except anthropic.APIStatusError as e:

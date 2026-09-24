@@ -44,7 +44,7 @@ def _load_tender(tender_id: str) -> Tender:
 def status():
     return {
         "source": source_name(),
-        "anthropic_configured": bool(config.ANTHROPIC_API_KEY),
+        "anthropic_configured": config.ANTHROPIC_CONFIGURED,
         "model": config.ANTHROPIC_MODEL,
     }
 
