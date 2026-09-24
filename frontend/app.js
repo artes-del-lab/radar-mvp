@@ -26,11 +26,13 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 
 // --- форматирование ---
 
-function money(v) {
+// Некоторые закупки по 223-ФЗ идут в валюте (например, CNY) — показываем её код.
+function money(v, currency = "RUB") {
   if (!v) return "—";
-  if (v >= 1e9) return `${(v / 1e9).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} млрд ₽`;
-  if (v >= 1e6) return `${(v / 1e6).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} млн ₽`;
-  return `${Math.round(v).toLocaleString("ru-RU")} ₽`;
+  const unit = currency === "RUB" ? "₽" : currency;
+  if (v >= 1e9) return `${(v / 1e9).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} млрд ${unit}`;
+  if (v >= 1e6) return `${(v / 1e6).toLocaleString("ru-RU", { maximumFractionDigits: 1 })} млн ${unit}`;
+  return `${Math.round(v).toLocaleString("ru-RU")} ${unit}`;
 }
 const date = (iso) => new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 const dateTime = (iso) => new Date(iso).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
@@ -188,7 +190,7 @@ function renderKpis() {
   $("#kpi-high").textContent = lv("high").length;
   $("#kpi-medium").textContent = lv("medium").length;
   $("#kpi-low").textContent = lv("low").length;
-  const sum = [...lv("high"), ...lv("medium")].reduce((s, i) => s + (i.tender.nmck ?? 0), 0);
+  const sum = [...lv("high"), ...lv("medium")].reduce((s, i) => s + (i.tender.currency === "RUB" ? i.tender.nmck ?? 0 : 0), 0);
   $("#kpi-sum").textContent = sum ? money(sum) : "—";
 
   const counts = {
@@ -225,7 +227,7 @@ function renderList() {
       <button type="button" class="card ${lvl} ${t.id === state.selected ? "selected" : ""}" data-id="${esc(t.id)}">
         <div class="card-title">${esc(t.title)}</div>
         <div class="card-side">
-          <span class="card-price">${money(t.nmck)}</span>
+          <span class="card-price">${money(t.nmck, t.currency)}</span>
           ${scorePill(it)}
         </div>
         <div class="card-meta">
@@ -346,7 +348,7 @@ function renderDetail() {
       <h2 class="detail-title">${esc(t.title)}</h2>
       <div class="detail-customer">${esc(t.customer.name)}${t.customer.industry ? ` · ${esc(t.customer.industry)}` : ""}</div>
       <div class="facts">
-        <div><div class="fact-label">НМЦК</div><div class="fact-value">${money(t.nmck)}</div></div>
+        <div><div class="fact-label">НМЦК</div><div class="fact-value">${money(t.nmck, t.currency)}</div></div>
         <div><div class="fact-label">Окончание подачи</div><div class="fact-value ${dl.cls}">${dateTime(t.deadline)}</div></div>
         <div><div class="fact-label">Регион</div><div class="fact-value">${esc(t.region)}</div></div>
         <div><div class="fact-label">ОКПД2</div><div class="fact-value">${esc(t.okpd2.code || "—")}</div></div>

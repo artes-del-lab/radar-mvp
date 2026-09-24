@@ -10,6 +10,11 @@ OKPD2_INCLUDE = [
     "28.92",  # машины для горных работ и строительства
     "29.10",  # автотранспортные средства (автокраны, грузовики, спецтехника)
     "28.30",  # сельхозтехника: тракторы, а также комбайны и прочие машины
+]
+
+# Смежные группы: предфильтр их не отсеивает, но для Claude они помечены как
+# «проверить, есть ли у наших брендов такая техника».
+OKPD2_ADJACENT = [
     "28.22.14",  # краны, в том числе гусеничные (вилочные погрузчики 28.22.15 — не наши)
 ]
 
@@ -34,6 +39,10 @@ def okpd2_matches(code: str) -> bool:
     if any(code.startswith(prefix) for prefix in OKPD2_EXCLUDE):
         return False
     return any(code.startswith(prefix) for prefix in OKPD2_INCLUDE)
+
+
+def okpd2_adjacent(code: str) -> bool:
+    return any(code.strip().startswith(prefix) for prefix in OKPD2_ADJACENT)
 
 
 # НМЦК ниже порога — скорее всего мелочь, б/у или запчасти. Не жёсткий отсев:

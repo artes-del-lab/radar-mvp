@@ -143,7 +143,7 @@ def _prefilter(tender: Tender, now: datetime) -> Evaluation | None:
     days = _days_left(tender, now)
     brand = _mentions_brand(tender)
     codes = _okpd2_codes(tender)
-    our_codes = [c for c in codes if criteria.okpd2_matches(c)]
+    our_codes = [c for c in codes if criteria.okpd2_matches(c) or criteria.okpd2_adjacent(c)]
     code_label = ", ".join(dict.fromkeys(codes)) or "код не указан"
     title = tender.title.lower()
 
@@ -155,7 +155,7 @@ def _prefilter(tender: Tender, now: datetime) -> Evaluation | None:
         brand=Check(status="ok" if brand else "warn", note="упомянуты наши бренды" if brand else "бренды не указаны"),
         price=Check(status="warn", note="НМЦК не указана")
         if not tender.nmck
-        else Check(status="ok", note=_money(tender.nmck)),
+        else Check(status="ok", note=_money(tender.nmck) if tender.currency == "RUB" else f"{tender.nmck:,.0f} {tender.currency}"),
         deadline=Check(
             status="bad" if days < 0 else "warn" if days < 7 else "ok",
             note="срок подачи прошёл" if days < 0 else f"осталось {days} дн.",
@@ -180,7 +180,7 @@ def _prefilter(tender: Tender, now: datetime) -> Evaluation | None:
     elif stop_word and not brand:
         score, summary = 0, f"Не поставка техники: в названии «{stop_word}…», наши бренды не упоминаются."
         checks.okpd2 = Check(status="bad", note=f"«{stop_word}…» — сопутствующее, не техника")
-    elif tender.nmck and tender.nmck < criteria.MIN_NMCK_RUB:
+    elif tender.nmck and tender.currency == "RUB" and tender.nmck < criteria.MIN_NMCK_RUB:
         score, summary = 5, f"НМЦК {_money(tender.nmck)} — ниже порога {_money(criteria.MIN_NMCK_RUB)} для новой техники."
         checks.price = Check(status="bad", note=f"{_money(tender.nmck)} — ниже порога")
     else:
@@ -197,6 +197,14 @@ def _prefilter(tender: Tender, now: datetime) -> Evaluation | None:
     )
 
 
+def _okpd2_label(code: str) -> str:
+    if criteria.okpd2_matches(code):
+        return "в целевых группах"
+    if criteria.okpd2_adjacent(code):
+        return "смежная группа: проверь, выпускают ли наши бренды такую технику сейчас"
+    return "вне целевых групп"
+
+
 def _tender_prompt(tender: Tender, now: datetime) -> str:
     days = _days_left(tender, now)
     deadline_fact = f"срок подачи прошёл {-days} дн. назад" if days < 0 else f"осталось {days} дн."
@@ -206,7 +214,7 @@ def _tender_prompt(tender: Tender, now: datetime) -> str:
 Название лота: {tender.title}
 Описание: {tender.description}
 ОКПД2: {tender.okpd2.code} {tender.okpd2.name} — \
-{"в целевых группах" if criteria.okpd2_matches(tender.okpd2.code) else "вне целевых групп"}
+{_okpd2_label(tender.okpd2.code)}
 Количество: {tender.quantity or "не указано"}
 НМЦК: {f'{tender.nmck:,.0f} {tender.currency}' if tender.nmck else 'не указана'}
 Регион: {tender.region}{f", {tender.delivery_place}" if tender.delivery_place else ""}

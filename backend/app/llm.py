@@ -55,6 +55,10 @@ def _get_client() -> anthropic.Anthropic:
             api_key=config.ANTHROPIC_API_KEY or None,
             auth_token=None if config.ANTHROPIC_API_KEY else config.ANTHROPIC_AUTH_TOKEN,
             base_url=config.ANTHROPIC_BASE_URL or None,
+            # По умолчанию SDK ждёт до 10 минут и дважды повторяет. Нормальный ответ —
+            # 10–30 секунд; шлюз иногда зависает, и тогда лучше быстро показать ошибку.
+            timeout=90,
+            max_retries=1,
         )
     return _client
 
@@ -113,6 +117,10 @@ def _send(params: dict):
             # Так отвечает шлюз, когда исчерпана квота токенов на ключе.
             raise LlmError("Исчерпана квота токенов у шлюза: подождите или пополните баланс") from e
         raise LlmError("Anthropic: превышен лимит запросов, попробуйте через минуту") from e
+    except anthropic.InternalServerError as e:
+        raise LlmError(f"Сервер Claude/шлюза недоступен ({e.status_code}), попробуйте через минуту") from e
+    except anthropic.APITimeoutError as e:
+        raise LlmError("Claude не ответил за полторы минуты, попробуйте ещё раз") from e
     except anthropic.APIStatusError as e:
         raise LlmError(f"Anthropic: ошибка {e.status_code}: {e.message}") from e
     except anthropic.APIConnectionError as e:
