@@ -37,6 +37,29 @@ function money(v, currency = "RUB") {
 const date = (iso) => new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 const dateTime = (iso) => new Date(iso).toLocaleString("ru-RU", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 
+// «Новый» — опубликован за последние сутки: такие лоты конкуренты могли ещё не увидеть.
+const NEW_HOURS = 24;
+const hoursAgo = (iso) => (Date.now() - new Date(iso)) / 36e5;
+const isNew = (t) => hoursAgo(t.published_at) < NEW_HOURS;
+function agoText(iso) {
+  const h = hoursAgo(iso);
+  if (h < 1) return "меньше часа назад";
+  if (h < 24) return `${Math.floor(h)} ч назад`;
+  const d = Math.floor(h / 24);
+  return d === 1 ? "вчера" : `${d} дн. назад`;
+}
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  return m10 === 1 && m100 !== 11 ? one : m10 >= 2 && m10 <= 4 && (m100 < 10 || m100 >= 20) ? few : many;
+}
+
+// Время прошлого визита — только для подсказки «с прошлого визита появилось N».
+let lastVisit = null;
+try {
+  lastVisit = Number(localStorage.getItem("radar-last-visit")) || null;
+  localStorage.setItem("radar-last-visit", String(Date.now()));
+} catch { /* хранилище недоступно — просто без подсказки */ }
+
 function daysLeft(iso) {
   return Math.floor((new Date(iso) - new Date()) / 86400000);
 }
@@ -180,6 +203,7 @@ function sortedFiltered() {
       || new Date(a.tender.deadline) - new Date(b.tender.deadline),
     deadline: (a, b) => new Date(a.tender.deadline) - new Date(b.tender.deadline),
     nmck: (a, b) => (b.tender.nmck ?? 0) - (a.tender.nmck ?? 0),
+    published: (a, b) => new Date(b.tender.published_at) - new Date(a.tender.published_at),
   }[state.sort];
   return [...list].sort(by);
 }
@@ -187,6 +211,9 @@ function sortedFiltered() {
 function renderKpis() {
   const lv = (l) => state.items.filter((i) => i.evaluation?.level === l);
   $("#kpi-total").textContent = state.items.length;
+  const fresh = state.items.filter((i) => isNew(i.tender)).length;
+  $("#kpi-new").textContent = fresh ? `${fresh} ${plural(fresh, "новый", "новых", "новых")} за сутки` : "";
+  renderStatusStrip();
   $("#kpi-high").textContent = lv("high").length;
   $("#kpi-medium").textContent = lv("medium").length;
   $("#kpi-low").textContent = lv("low").length;
@@ -203,6 +230,26 @@ function renderKpis() {
     const base = t.textContent.replace(/\s*\d+$/, "");
     t.innerHTML = `${esc(base)}<span class="count">${counts[f]}</span>`;
   });
+}
+
+// Строка о том, как РАДАР отработал поток: откуда тендеры, сколько отсеяно
+// автоматически, сколько оценил ИИ, сколько писем готово.
+function renderStatusStrip() {
+  const s = state.status, items = state.items;
+  if (!s || !items.length) return;
+  const by = (m) => items.filter((i) => i.evaluation?.method === m).length;
+  const drafts = items.filter((i) => i.has_draft).length;
+  const sinceVisit = lastVisit ? items.filter((i) => new Date(i.tender.published_at) > lastVisit).length : 0;
+  const parts = [
+    `<strong>${esc(SOURCES[s.source] || s.source)}</strong>` +
+      (s.auto_check ? `, автопроверка ${esc(s.auto_check)}` : "") +
+      (s.checked_at ? ` · обновлено ${esc(dateTime(s.checked_at))}` : ""),
+    `Из ${items.length} найденных: ${by("prefilter")} отсеяно автоматически, ${by("llm")} оценено ИИ, ` +
+      `готово ${drafts} ${plural(drafts, "черновик", "черновика", "черновиков")} писем`,
+  ];
+  if (sinceVisit) parts.push(`С вашего прошлого визита — <strong>${sinceVisit} ${plural(sinceVisit, "новый тендер", "новых тендера", "новых тендеров")}</strong>`);
+  $("#status-strip").innerHTML = parts.join(". ") + ".";
+  $("#status-strip").hidden = false;
 }
 
 function scorePill(it) {
@@ -225,7 +272,7 @@ function renderList() {
     const lvl = it.evaluation ? `lvl-${it.evaluation.level}` : "";
     return `
       <button type="button" class="card ${lvl} ${t.id === state.selected ? "selected" : ""}" data-id="${esc(t.id)}">
-        <div class="card-title">${esc(t.title)}</div>
+        <div class="card-title">${isNew(t) ? `<span class="tag-new">новый</span>` : ""}${esc(t.title)}</div>
         <div class="card-side">
           <span class="card-price">${money(t.nmck, t.currency)}</span>
           ${scorePill(it)}
@@ -234,6 +281,7 @@ function renderList() {
           <span>${esc(t.customer.name)}</span>
           <span>${esc(t.region)}</span>
           <span class="${dl.cls}">${esc(dl.text)}</span>
+          <span>опубликован ${esc(agoText(t.published_at))}</span>
         </div>
       </button>`;
   }).join("");
@@ -357,7 +405,7 @@ function renderDetail() {
       </div>
       <p class="description">${esc(t.description)}</p>
       <div class="source-line">
-        ${esc(t.platform)} · ${esc(t.law)} · № ${esc(t.number)} · опубликован ${date(t.published_at)}
+        ${esc(t.platform)} · ${esc(t.law)} · № ${esc(t.number)} · опубликован ${date(t.published_at)} (${esc(agoText(t.published_at))})
         · источник: ${esc(SOURCES[t.source] || t.source)}
         ${t.url ? ` · <a href="${esc(t.url)}" target="_blank" rel="noopener">открыть карточку</a>` : ""}
       </div>

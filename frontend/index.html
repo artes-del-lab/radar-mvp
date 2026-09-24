@@ -34,8 +34,9 @@
   <div id="banner" class="banner" hidden></div>
 
   <main class="page">
+    <p class="status-strip" id="status-strip" hidden></p>
     <section class="kpis" aria-label="Сводка">
-      <div class="kpi"><div class="kpi-label">Найдено тендеров</div><div class="kpi-value" id="kpi-total">—</div></div>
+      <div class="kpi"><div class="kpi-label">Найдено тендеров</div><div class="kpi-value" id="kpi-total">—</div><div class="kpi-sub" id="kpi-new"></div></div>
       <div class="kpi"><div class="kpi-label"><span class="dot dot-high"></span>Стоит заняться</div><div class="kpi-value" id="kpi-high">—</div></div>
       <div class="kpi"><div class="kpi-label"><span class="dot dot-medium"></span>Посмотреть внимательнее</div><div class="kpi-value" id="kpi-medium">—</div></div>
       <div class="kpi"><div class="kpi-label"><span class="dot dot-low"></span>Отсеяно</div><div class="kpi-value" id="kpi-low">—</div></div>
@@ -53,6 +54,7 @@
       <label class="sort">Сортировка
         <select id="sort">
           <option value="score">по релевантности</option>
+          <option value="published">сначала новые</option>
           <option value="deadline">по сроку подачи</option>
           <option value="nmck">по НМЦК</option>
         </select>

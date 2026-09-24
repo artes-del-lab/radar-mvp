@@ -98,8 +98,17 @@ ANTHROPIC_MODEL=claude-opus-5
 
 RADAR_USER=radar
 RADAR_PASSWORD=$PASSWORD
+RADAR_AUTO_CHECK=каждое утро в 06:30 МСК
+
+# Подпись в черновиках писем (пусто — останется заполнитель в скобках)
+SENDER_NAME=
+SENDER_POSITION=
+SENDER_COMPANY=
+SENDER_PHONE=
+SENDER_EMAIL=
 EOF
 fi
+grep -q '^RADAR_AUTO_CHECK=' "$APP_DIR/.env" || echo 'RADAR_AUTO_CHECK=каждое утро в 06:30 МСК' >>"$APP_DIR/.env"
 chmod 600 "$APP_DIR/.env"
 mkdir -p "$APP_DIR/data/cache"
 chown -R "$APP_USER:$APP_USER" "$APP_DIR"

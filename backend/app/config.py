@@ -38,3 +38,16 @@ CACHE_DIR = DATA_DIR / "cache"
 # Вход по паролю (для сервера). Пусто — вход без пароля, как при запуске у себя.
 RADAR_USER = os.getenv("RADAR_USER", "radar").strip()
 RADAR_PASSWORD = os.getenv("RADAR_PASSWORD", "").strip()
+
+# Подпись менеджера: подставляется в черновики вместо [Имя менеджера] и т.п.
+# Пустое поле остаётся заполнителем в квадратных скобках.
+SENDER = {
+    "[Имя менеджера]": os.getenv("SENDER_NAME", "").strip(),
+    "[Должность]": os.getenv("SENDER_POSITION", "").strip(),
+    "[Название компании]": os.getenv("SENDER_COMPANY", "").strip(),
+    "[Телефон]": os.getenv("SENDER_PHONE", "").strip(),
+    "[Email]": os.getenv("SENDER_EMAIL", "").strip(),
+}
+
+# Текст для дашборда о расписании автопроверки (скрипт установки на сервер задаёт его сам).
+RADAR_AUTO_CHECK = os.getenv("RADAR_AUTO_CHECK", "").strip()

@@ -204,3 +204,17 @@ button, select, textarea { font: inherit; color: inherit; }
   .card { grid-template-columns: minmax(0, 1fr); }
   .card-side { grid-row: auto; grid-column: 1; flex-direction: row; align-items: center; justify-content: space-between; order: 3; }
 }
+
+/* --- свежесть и работа системы --- */
+.status-strip {
+  margin: 0 0 12px; font-size: 13px; line-height: 1.5; color: var(--text-2);
+  text-wrap: pretty;
+}
+.status-strip strong { color: var(--text); font-weight: 600; }
+.kpi-sub { font-size: 12px; color: var(--text-2); margin-top: 2px; }
+.kpi-sub:empty { display: none; }
+.tag-new {
+  display: inline-flex; align-items: center; padding: 1px 7px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 700;
+  letter-spacing: .04em; text-transform: uppercase; vertical-align: 2px; margin-right: 6px;
+}

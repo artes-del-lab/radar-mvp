@@ -7,6 +7,7 @@
 
 import base64
 import secrets
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, Response
@@ -79,6 +80,9 @@ def status():
         "source": source_name(),
         "anthropic_configured": config.ANTHROPIC_CONFIGURED,
         "model": config.ANTHROPIC_MODEL,
+        "auto_check": config.RADAR_AUTO_CHECK,
+        # Список тендеров берётся из источника при каждом открытии дашборда.
+        "checked_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

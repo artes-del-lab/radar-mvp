@@ -113,9 +113,25 @@ def _fingerprint(tender: Tender) -> str:
     return JsonCache.fingerprint(tender.model_dump_json(), PROMPT_VERSION)
 
 
+def _with_sender(draft: Draft) -> Draft:
+    """Подставляет подпись менеджера из .env вместо заполнителей.
+
+    Делается при выдаче, а не при генерации: сменили подпись в .env — все
+    черновики, в том числе уже готовые, сразу с новой подписью, без запросов к Claude.
+    """
+    body, notes = draft.body, draft.manager_notes
+    for placeholder, value in config.SENDER.items():
+        if value:
+            body = body.replace(placeholder, value)
+    if all(config.SENDER.values()):
+        # Пункты «заполнить [Имя менеджера]…» больше не актуальны.
+        notes = [n for n in notes if not any(p in n for p in config.SENDER)]
+    return draft.model_copy(update={"body": body, "manager_notes": notes})
+
+
 def get_cached(tender: Tender) -> Draft | None:
     value = cache.get(tender.id, _fingerprint(tender))
-    return Draft.model_validate(value) if value else None
+    return _with_sender(Draft.model_validate(value)) if value else None
 
 
 def generate(tender: Tender, evaluation: Evaluation | None = None, force: bool = False) -> Draft:
@@ -140,7 +156,7 @@ def generate(tender: Tender, evaluation: Evaluation | None = None, force: bool =
         generated_at=datetime.now(timezone.utc),
     )
     cache.put(tender.id, _fingerprint(tender), draft.model_dump(mode="json"))
-    return draft
+    return _with_sender(draft)
 
 
 if __name__ == "__main__":
